@@ -1,0 +1,42 @@
+{
+	"doc": {
+		"_source": {"enabled":true},
+		"properties": {
+			"id": {
+				"type":"string",
+				"store":true,
+				"index":"analyzed"
+			},
+			"message": {
+				"type": "string",
+				"store":true,
+				"index":"not_analyzed",
+				"fields": {
+					"message": {
+						"type":"string",
+						"store":true,
+						"index":"not_analyzed"
+					},
+					"original": {
+						"type":"string",
+						"index":"not_analyzed",
+						"store":true
+					}
+				}
+			},
+			"dateField": {
+				"type":"date",
+				"format":"dateOptionalTime"
+			}
+		},
+		"dynamic_templates": [
+			{"custom_fields": {
+				"match": "custom*",
+				"mapping": {
+					"index":"no",
+					"store":false
+				}
+			}}
+		]
+	}
+}
