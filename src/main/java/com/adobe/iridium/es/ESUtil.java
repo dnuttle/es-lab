@@ -1,8 +1,4 @@
 package com.adobe.iridium.es;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -11,9 +7,10 @@ import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.Arrays;
 import java.util.Iterator;
+import java.util.List;
+import java.util.SortedMap;
 import java.util.stream.Stream;
 
-import org.apache.log4j.Logger;
 import org.elasticsearch.action.admin.indices.alias.IndicesAliasesResponse;
 import org.elasticsearch.action.admin.indices.create.CreateIndexResponse;
 import org.elasticsearch.action.admin.indices.delete.DeleteIndexResponse;
@@ -25,16 +22,28 @@ import org.elasticsearch.action.index.IndexRequest;
 import org.elasticsearch.client.AdminClient;
 import org.elasticsearch.client.Client;
 import org.elasticsearch.client.transport.TransportClient;
+import org.elasticsearch.cluster.metadata.AliasOrIndex;
+import org.elasticsearch.cluster.metadata.IndexMetaData;
 import org.elasticsearch.cluster.metadata.MetaData;
+import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.transport.InetSocketTransportAddress;
+import org.elasticsearch.common.xcontent.NamedXContentRegistry;
 import org.elasticsearch.common.xcontent.XContentFactory;
 import org.elasticsearch.common.xcontent.XContentParser;
 import org.elasticsearch.common.xcontent.XContentType;
+import org.elasticsearch.index.IndexNotFoundException;
+import org.elasticsearch.transport.client.PreBuiltTransportClient;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 
 public class ESUtil {
   
-  private static final Logger LOG = Logger.getLogger(ESUtil.class);
+  private static final Logger LOG = LoggerFactory.getLogger(ESUtil.class);
 
   private String host;
   private int port;
@@ -45,14 +54,23 @@ public class ESUtil {
   }
   
   public Stream<String> getIndexNames() throws UnknownHostException {
-    return Arrays.asList(getMetaData().concreteAllIndices()).stream();
+    //this was the 2.2.0 method, they had to break backward compatibility for sake of
+    //adding "get"
+    //return Arrays.asList(getMetaData().concreteAllIndices()).stream();
+    return Arrays.asList(getMetaData().getConcreteAllIndices()).stream();
+  }
+  
+  public Stream<String> getAliases() throws UnknownHostException {
+    return Arrays.asList(getMetaData().getConcreteAllIndices()).stream();
   }
   
   public void createIndex(String index) throws UnknownHostException {
     LOG.info("createIndex (" + index + ")");
     if (!isIndexExists(index)) {
-      CreateIndexResponse resp = getClient().admin().indices().prepareCreate(index).get();
+      Client client = getClient();
+      CreateIndexResponse resp = client.admin().indices().prepareCreate(index).get();
       LOG.info("Index create ack: " + resp.isAcknowledged());
+      client.close();
     }
   }
   
@@ -61,9 +79,28 @@ public class ESUtil {
     if (!isIndexExists(index)) {
       createIndex(index);
     }
-    AdminClient admin = getClient().admin();
+    Client client = getClient();
+    AdminClient admin = client.admin();
     IndicesAliasesResponse resp = admin.indices().prepareAliases().addAlias(index, alias).get();
+    client.close();
     LOG.info("Alias creation request ack: " + resp.isAcknowledged());
+  }
+  
+  public void hotswap(String index, String alias) throws UnknownHostException, IndexNotFoundException {
+    if (!isIndexExists(index)) {
+      throw new IndexNotFoundException("Index " + index + " not found");
+    }
+    Client client = getClient();
+    SortedMap<String, AliasOrIndex> map = getMetaData().getAliasAndIndexLookup();
+    if (map.get(alias) != null && map.get(alias).isAlias()) {
+      List<IndexMetaData> indices = map.get(alias).getIndices();
+      for (IndexMetaData im : indices) {
+        LOG.debug("Found current index " + im.getIndex().getName() + " with alias");
+        client.admin().indices().prepareAliases().removeAlias(im.getIndex().getName(), alias);
+      }
+    }
+    createAlias(index, alias);
+    client.close();
   }
   
   public void dropIndex(String index) throws UnknownHostException {
@@ -75,6 +112,7 @@ public class ESUtil {
     } else {
       LOG.info("Index " + index + " does not exist, so not deleted");
     }
+    client.close();
   }
   
   public boolean isIndexExists(String index) throws UnknownHostException {
@@ -128,30 +166,62 @@ public class ESUtil {
       bresp = bulkBuilder.execute().actionGet();
     }
     LOG.info("Processed " + count);
+    client.close();
   }
   
   
   public void createMappings(String index, String mappingFile) throws UnknownHostException,
   JsonProcessingException, IOException {
   InputStream is = new FileInputStream(new File(mappingFile));
+  NamedXContentRegistry registry = NamedXContentRegistry.EMPTY;
   XContentParser parser = XContentFactory.xContent(XContentType.JSON)
-      .createParser(is);
-    boolean ack = getClient()
+      .createParser(registry, is);
+  //XContentParser parser = XContentFactory.xContent(XContentType.JSON)
+  //    .createParser(is);
+  
+    Client client = getClient();
+    boolean ack = client
       .admin()
       .indices()
       .preparePutMapping(index)
       .setType("doc")
       .setSource(parser.mapOrdered())
-      .execute().actionGet().isAcknowledged();
+      .execute()
+      .actionGet()
+      .isAcknowledged();
     LOG.info("Mapping ack: " + ack);
+    client.close();
   }
 
   public MetaData getMetaData() throws UnknownHostException {
-    return getClient().admin().cluster().prepareState().execute().actionGet().getState().getMetaData();
+    Client client = getClient();
+    MetaData metaData = client
+      .admin()          //returns AdminClient
+      .cluster()        //returns ClusterAdminClient
+      .prepareState()   //returns ClusterStateRequestBuilder
+      .execute()        //returns ListenableActionFuture<ClusterStateResponse>
+      .actionGet()      //returns ClusterStateRes
+      .getState()       //returns ClusterState
+      .getMetaData();   //returns MetaData
+    client.close();
+    return metaData;
   }
 
   public Client getClient() throws UnknownHostException {
-    TransportClient client = TransportClient.builder().build()
+    //2.2.0 method, again they shattered backward compatibility
+    /*
+    TransportClient client = TransportClient
+      .builder()
+      .build()
+      .addTransportAddress(new InetSocketTransportAddress(InetAddress.getByName(host), port));
+    */
+    
+    //The default cluster name is "elasticsearch"
+    //If custom, change below
+    Settings settings = Settings.builder()
+        .put("cluster.name", "elasticsearch").build();
+    //If no need to change settings, Settings.EMPTY could be passed below
+    TransportClient client = new PreBuiltTransportClient(settings)
         .addTransportAddress(new InetSocketTransportAddress(InetAddress.getByName(host), port));
     return client;
   }

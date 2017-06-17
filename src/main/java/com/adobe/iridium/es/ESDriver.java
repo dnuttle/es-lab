@@ -1,10 +1,11 @@
 package com.adobe.iridium.es;
 
-import org.apache.log4j.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class ESDriver {
 
-  private static final Logger LOG = Logger.getLogger(ESDriver.class);
+  private static final Logger LOG = LoggerFactory.getLogger(ESDriver.class);
   
   public static void main(String[] args) {
     String host = args[0];
@@ -17,10 +18,11 @@ public class ESDriver {
       util.dropIndex(index); //drops if already exists
       util.createIndex(index);
       util.createAlias(index, index + "-alias");
+      util.hotswap("eslab", "eslab-another-alias");
       util.createMappings(index, mappingFile);
       util.indexJsonFeed(index, feedFile, false /*delete*/);
     } catch (Exception e) {
-      LOG.error(e);
+      LOG.error("Error", e);
     }
   }
 
