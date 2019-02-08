@@ -17,6 +17,7 @@ repositories {
 }
 
 dependencies {
+    compile 'org.elasticsearch.client:elasticsearch-rest-high-level-client:6.2.2'
     compile group: 'org.elasticsearch', name: 'elasticsearch', version: '5.2.2'
     compile group: 'org.elasticsearch.client', name: 'transport', version: '5.2.2'
     

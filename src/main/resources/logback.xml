@@ -8,6 +8,7 @@
   </appender>
    
   <logger name="net.nuttle" level="DEBUG"/>
+  <logger name="com.adobe.iridium.es" level="DEBUG"/>
    
  
   <root level="warn">

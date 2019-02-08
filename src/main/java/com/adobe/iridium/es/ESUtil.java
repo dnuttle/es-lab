@@ -26,7 +26,8 @@ import org.elasticsearch.cluster.metadata.AliasOrIndex;
 import org.elasticsearch.cluster.metadata.IndexMetaData;
 import org.elasticsearch.cluster.metadata.MetaData;
 import org.elasticsearch.common.settings.Settings;
-import org.elasticsearch.common.transport.InetSocketTransportAddress;
+import org.elasticsearch.common.transport.TransportAddress;
+//import org.elasticsearch.common.transport.InetSocketTransportAddress;
 import org.elasticsearch.common.xcontent.NamedXContentRegistry;
 import org.elasticsearch.common.xcontent.XContentFactory;
 import org.elasticsearch.common.xcontent.XContentParser;
@@ -221,8 +222,9 @@ public class ESUtil {
     Settings settings = Settings.builder()
         .put("cluster.name", "elasticsearch").build();
     //If no need to change settings, Settings.EMPTY could be passed below
+    @SuppressWarnings("resource")
     TransportClient client = new PreBuiltTransportClient(settings)
-        .addTransportAddress(new InetSocketTransportAddress(InetAddress.getByName(host), port));
+        .addTransportAddress(new TransportAddress(InetAddress.getByName(host), port));
     return client;
   }
 

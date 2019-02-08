@@ -1,0 +1,47 @@
+{
+	"properties": {
+		"message": {
+			"type":"text"
+		},
+		"category":{
+			"type":"keyword"
+		},
+		"environment": {
+			"type":"long"
+		},
+		"color": {
+			"type":"text",
+			"fields": {
+				"sort": {
+					"type":"keyword"
+				}
+			}
+		},
+		"inventory": {
+			"type":"long"
+		},
+		"pageUrl": {
+			"type":"keyword"
+		},
+		"name": {
+			"type":"text"
+		},
+		"value": {
+			"type":"double"
+		},
+		"__recsID": {
+			"type":"long"
+		},
+		"margin": {
+			"type":"double"
+		},
+		"size": {
+			"type":"text",
+			"fields": {
+				"sort": {
+					"type":"keyword"
+				}
+			}
+		}
+	}
+}
